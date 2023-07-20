@@ -172,3 +172,159 @@ it seems impossible to put methods from a class as the fuse operations because t
 maybe using something like this could help ? https://github.com/jachappell/Fusepp
 
 or we dont use classes at all ?!
+
+
+so, the Fusepp thing seems good enough to save us.
+
+the issue now is that the methods of FUSE are `static`, which means that they cannot access `this` and all the dynamic parts.
+
+what i am thinking about right now is to have a class for the fuse that will be a simgrid actor.
+
+for every FS operations that can be managed by simgrid, this fuse class will send a message via mailbox to the master class.
+
+This master class doesnt have static parts and can then distribute the work among the workers.
+
+oof!
+
+finally managed to get actors to speak to each other!
+
+the issue was that the name of the mailbox was different (i think)
+
+
+So, what is the next steps?
+
+maybe read/write ?
+
+Alright!!
+
+so i can read and i can write
+
+but what simgrid sees is not what i see on the terminal
+
+
+
+so this is the output of the fuse when i try to run ior on it
+
+#+BEGIN_EXAMPLE
+[getattr] Called
+        Attributes of /testFile requested
+[bob:masterfs:(3) 0.000000] [s4u_test/INFO] Create a 262144 bytes file named '/testFile' on /
+[bob:masterfs:(3) 0.006554] [s4u_test/INFO] Create a 262144 bytes file named '/testFile' on /
+[bob:masterfs:(3) 0.013107] [s4u_test/INFO] Create a 262144 bytes file named '/testFile' on /
+[bob:masterfs:(3) 0.019661] [s4u_test/INFO] Create a 262144 bytes file named '/testFile' on /
+[getattr] Called
+        Attributes of /testFile requested
+[bob:masterfs:(3) 0.036700] [s4u_test/INFO] Read 1048576 bytes on /testFile
+fuse: read too many bytes
+fuse: writing device: Invalid argument
+[bob:masterfs:(3) 0.047186] [s4u_test/INFO] Read 1048576 bytes on /testFile
+fuse: read too many bytes
+fuse: writing device: Invalid argument
+#+END_EXAMPLE
+
+and the ior output
+
+#+BEGIN_EXAMPLE
+IOR-3.3.0: MPI Coordinated Test of Parallel I/O
+Began               : Fri Jul 21 00:58:54 2023
+Command line        : ior
+Machine             : Linux kagel
+TestID              : 0
+StartTime           : Fri Jul 21 00:58:54 2023
+Path                : /home/quentin/ghq/github.com/GuilloteauQ/fuse-sg/src/ici
+FS                  : 0.0 GiB   Used FS: -nan%   Inodes: 0.0 Mi   Used Inodes: -nan%
+
+Options:
+api                 : POSIX
+apiVersion          :
+test filename       : testFile
+access              : single-shared-file
+type                : independent
+segments            : 1
+ordering in a file  : sequential
+ordering inter file : no tasks offsets
+nodes               : 1
+tasks               : 1
+clients per node    : 1
+repetitions         : 1
+xfersize            : 262144 bytes
+blocksize           : 1 MiB
+aggregate filesize  : 1 MiB
+
+Results:
+
+access    bw(MiB/s)  IOPS       Latency(s)  block(KiB) xfer(KiB)  open(s)    wr/rd(s)   close(s)   total(s)   iter
+------    ---------  ----       ----------  ---------- ---------  --------   --------   --------   --------   ----
+ior WARNING: [RANK 000]: unlink() of file "testFile" failed
+, errno 38, Function not implemented
+WARNING: Expected aggregate file size       = 1048576.
+WARNING: Stat() of aggregate file size      = 1024.
+WARNING: Using actual aggregate bytes moved = 1048576.
+write     1650.83    6799       0.000147    1024.00    256.00     0.000014   0.000588   0.000003   0.000606   0
+ior ERROR: read(21, 0x7f8e755be000, 262144) failed, errno 5, Input/output error (aiori-POSIX.c:550)
+--------------------------------------------------------------------------
+MPI_ABORT was invoked on rank 0 in communicator MPI_COMM_WORLD
+with errorcode -1.
+
+NOTE: invoking MPI_ABORT causes Open MPI to kill all MPI processes.
+You may or may not see output from other processes, depending on
+exactly when Open MPI kills them.
+--------------------------------------------------------------------------
+#+END_EXAMPLE
+
+seems like there are some unlink issue 
+
+
+the FUSE message: `fuse: read too many bytes` is also a bit weird
+
+
+https://github.com/search?q=repo%3Alibfuse%2Flibfuse%20%22fuse%3A%20read%20too%20many%20bytes%22&type=code
+
+so maybe i fucked up the return value of the read method
+
+Ah! IOR writes 4 times to the same file and then reads it. but as i dont save anything, simgrid rewrites on the same file i think
+
+
+weird, even by taking care of the seek, it doesnt seems to work...
+
+
+Ah no, it seems ok somehow....
+
+#+BEGIN_EXAMPLE
+[getattr] Called
+        Attributes of /testFile requested
+[bob:masterfs:(3) 0.000000] [s4u_test/INFO] Openning '/testFile' on /
+[bob:masterfs:(3) 0.000000] [s4u_test/INFO] Using open file
+[bob:masterfs:(3) 0.000000] [s4u_test/INFO] Adding a 262144 bytes file named '/testFile' on / (offset 0)
+[bob:masterfs:(3) 0.000000] [s4u_test/INFO] File /testFile of size 0
+[bob:masterfs:(3) 0.006554] [s4u_test/INFO] File /testFile of size 262144
+[bob:masterfs:(3) 0.006554] [s4u_test/INFO] Using open file
+[bob:masterfs:(3) 0.006554] [s4u_test/INFO] Adding a 262144 bytes file named '/testFile' on / (offset 262144)
+[bob:masterfs:(3) 0.006554] [s4u_test/INFO] File /testFile of size 262144
+[bob:masterfs:(3) 0.013107] [s4u_test/INFO] File /testFile of size 524288
+[bob:masterfs:(3) 0.013107] [s4u_test/INFO] Using open file
+[bob:masterfs:(3) 0.013107] [s4u_test/INFO] Adding a 262144 bytes file named '/testFile' on / (offset 524288)
+[bob:masterfs:(3) 0.013107] [s4u_test/INFO] File /testFile of size 524288
+[bob:masterfs:(3) 0.019661] [s4u_test/INFO] File /testFile of size 786432
+[bob:masterfs:(3) 0.019661] [s4u_test/INFO] Using open file
+[bob:masterfs:(3) 0.019661] [s4u_test/INFO] Adding a 262144 bytes file named '/testFile' on / (offset 786432)
+[bob:masterfs:(3) 0.019661] [s4u_test/INFO] File /testFile of size 786432
+[bob:masterfs:(3) 0.026214] [s4u_test/INFO] File /testFile of size 1048576
+[getattr] Called
+        Attributes of /testFile requested
+[bob:masterfs:(3) 0.026214] [s4u_test/INFO] Openning '/testFile' on /
+[bob:masterfs:(3) 0.036700] [s4u_test/INFO] Read 1048576 bytes on /testFile (offset: 0)
+[bob:masterfs:(3) 0.036700] [s4u_test/INFO] File /testFile of size 1048576
+fuse: read too many bytes
+fuse: writing device: Invalid argument
+#+END_EXAMPLE
+
+
+to investigate:
+
+- https://github.com/libfuse/libfuse/blob/624783d73baf151747fa72359af16c37260bfee2/lib/fuse.c#L1782
+
+- https://github.com/libfuse/libfuse/blob/624783d73baf151747fa72359af16c37260bfee2/lib/fuse.c#L1827
+
+
+and now dodo
