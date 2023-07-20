@@ -1,0 +1,174 @@
+#+TITLE: A Parallel File-System on your machine with FUSE and SimGrid
+#+AUTHOR: Quentin Guilloteau
+
+* Journal
+** <2023-07-20 Thu>
+
+Just trying to get a simple FUSE working in C++ as i am a noob.
+Currently i am following this introduction to fuse
+
+https://www.maastaar.net/fuse/linux/filesystem/c/2016/05/21/writing-a-simple-filesystem-using-fuse/
+
+
+ok seems to work like the example!
+
+now i want to know which operations are needed to run IOR:
+
+Let's run strace on it
+
+#+BEGIN_EXAMPLE
+% time     seconds  usecs/call     calls    errors syscall
+------ ----------- ----------- --------- --------- ------------------
+ 20.29    0.005821           9       586           read
+ 18.81    0.005396           5      1032           recvmsg
+ 13.76    0.003946           4       950       410 openat
+  6.10    0.001750           6       280        10 ioctl
+  5.95    0.001706           6       248           mmap
+  5.46    0.001566           2       542           clock_nanosleep
+  4.96    0.001424           2       709           close
+  3.59    0.001029           2       396       188 newfstatat
+  3.57    0.001023           6       159           sendto
+  2.83    0.000811          25        32           munmap
+  1.88    0.000539           3       148           socket
+  1.69    0.000485         485         1           execve
+  1.52    0.000435           8        52         6 futex
+  1.39    0.000400           5        79           write
+  1.24    0.000355          23        15           sched_setaffinity
+  1.17    0.000336           3        87           mprotect
+  1.13    0.000323           4        68           getdents64
+  0.56    0.000161           1        85           bind
+  0.38    0.000110           1        85           getsockname
+  0.29    0.000083          13         6         3 mkdir
+  0.29    0.000083           3        27           readlinkat
+  0.25    0.000073           3        24           brk
+  0.22    0.000063          63         1           shutdown
+  0.21    0.000061           0        73        66 readlink
+  0.19    0.000054           1        38           gettid
+  0.18    0.000053           1        44           fcntl
+  0.17    0.000048          48         1           connect
+  0.16    0.000046           1        34           getpid
+  0.13    0.000037           4         9         5 access
+  0.12    0.000033           8         4           clone3
+  0.08    0.000024           1        13           sched_getaffinity
+  0.08    0.000022           1        19           uname
+  0.08    0.000022           1        19           geteuid
+  0.07    0.000021           1        14           setsockopt
+  0.07    0.000019           1        17           lseek
+  0.07    0.000019           3         5           sendmsg
+  0.07    0.000019           1        16         1 faccessat2
+  0.06    0.000018           9         2           shmdt
+  0.06    0.000018           2         9           pipe2
+  0.06    0.000017           5         3           shmat
+  0.06    0.000017           1         9           epoll_ctl
+  0.06    0.000016           8         2           mremap
+  0.06    0.000016           1        13           getuid
+  0.06    0.000016           2         8           statfs
+  0.05    0.000015           5         3           madvise
+  0.05    0.000013           0        16           rt_sigaction
+  0.04    0.000012           6         2           shmget
+  0.04    0.000012           2         6           shmctl
+  0.04    0.000011           0        12           getegid
+  0.04    0.000011           5         2         1 arch_prctl
+  0.03    0.000009           1         9           rt_sigprocmask
+  0.03    0.000009           2         4           process_vm_writev
+  0.02    0.000007           2         3           getcwd
+  0.02    0.000007           0        10           getgid
+  0.02    0.000006           2         3           eventfd2
+  0.02    0.000005           2         2           sched_yield
+  0.02    0.000005           2         2           recvfrom
+  0.02    0.000005           2         2           set_mempolicy
+  0.02    0.000005           2         2           prlimit64
+  0.01    0.000004           2         2           pread64
+  0.01    0.000004           4         1           listen
+  0.01    0.000004           2         2           unlink
+  0.01    0.000004           2         2           epoll_create
+  0.01    0.000003           0         4           poll
+  0.01    0.000003           3         1           get_mempolicy
+  0.01    0.000003           3         1           getrandom
+  0.01    0.000002           2         1           sysinfo
+  0.01    0.000002           2         1           set_robust_list
+  0.01    0.000002           2         1           epoll_create1
+  0.01    0.000002           2         1           rseq
+  0.00    0.000001           1         1           getsockopt
+  0.00    0.000001           1         1           sigaltstack
+  0.00    0.000001           1         1           set_tid_address
+  0.00    0.000000           0         1           clone
+  0.00    0.000000           0         1           rmdir
+------ ----------- ----------- --------- --------- ------------------
+100.00    0.028682           4      6064       690 total
+#+END_EXAMPLE
+
+and this is the operations available in FUSE
+
+#+BEGIN_SRC c
+static const struct fuse_operations xmp_oper = {
+	.init           = xmp_init,
+	.getattr	= xmp_getattr,
+	.access		= xmp_access,
+	.readlink	= xmp_readlink,
+	.readdir	= xmp_readdir,
+	.mknod		= xmp_mknod,
+	.mkdir		= xmp_mkdir,
+	.symlink	= xmp_symlink,
+	.unlink		= xmp_unlink,
+	.rmdir		= xmp_rmdir,
+	.rename		= xmp_rename,
+	.link		= xmp_link,
+	.chmod		= xmp_chmod,
+	.chown		= xmp_chown,
+	.truncate	= xmp_truncate,
+#ifdef HAVE_UTIMENSAT
+	.utimens	= xmp_utimens,
+#endif
+	.open		= xmp_open,
+	.create 	= xmp_create,
+	.read		= xmp_read,
+	.write		= xmp_write,
+	.statfs		= xmp_statfs,
+	.release	= xmp_release,
+	.fsync		= xmp_fsync,
+#ifdef HAVE_POSIX_FALLOCATE
+	.fallocate	= xmp_fallocate,
+#endif
+#ifdef HAVE_SETXATTR
+	.setxattr	= xmp_setxattr,
+	.getxattr	= xmp_getxattr,
+	.listxattr	= xmp_listxattr,
+	.removexattr	= xmp_removexattr,
+#endif
+#ifdef HAVE_COPY_FILE_RANGE
+	.copy_file_range = xmp_copy_file_range,
+#endif
+	.lseek		= xmp_lseek,
+};
+#+END_SRC
+
+
+- read
+- open
+- close
+- write
+- mkdir
+- readlink
+- access
+- seek
+- rmdir
+- stat
+
+
+but watch out! some of those sys calls could also be done to load some deps of IOR, and are actually not useful in our case!
+
+
+we will implement just the interface and see
+
+
+
+ok managed to put the fuse process in a simgrid actor
+
+
+so.....
+it seems impossible to put methods from a class as the fuse operations because the types will not match.
+
+maybe using something like this could help ? https://github.com/jachappell/Fusepp
+
+or we dont use classes at all ?!

@@ -22,7 +22,16 @@
             fuse3
           ];
         };
-      };
 
+        report = pkgs.mkShell {
+          buildInputs = [
+            pkgs.emacs
+          ];
+          shellHook = ''
+            ${pkgs.emacs}/bin/emacs -q -l ./.init.el notes.org
+            exit
+          '';
+        };
+      };
     };
 }
