@@ -13,6 +13,8 @@ extern "C" {
 #include <functional>
 #include <iostream>
 
+#include "Fuse-impl.h"
+
 #include <simgrid/plugins/file_system.h>
 #include <simgrid/s4u.hpp>
 XBT_LOG_NEW_DEFAULT_CATEGORY(s4u_test, "a sample log category");
@@ -97,7 +99,7 @@ static int do_read(const char *path, char *buffer, size_t size, off_t offset,
   return strlen(selectedText) - offset;
 }
 
-class MyHost {
+class MyHost : public Fusepp::Fuse<MyHost> {
 public:
   void show_info(std::vector<sg4::Disk *> const &disks) const {
     XBT_INFO("Storage info on %s:", sg4::Host::current()->get_cname());
@@ -110,6 +112,62 @@ public:
                sg_disk_get_size(d));
     }
   }
+  static int getattr(const char *path, struct stat *st,
+                        struct fuse_file_info *fi) {
+    std::cout << "[getattr] Called" << std::endl;
+    std::cout << "\tAttributes of " << path << " requested" << std::endl;
+    st->st_uid = getuid(); // The owner of the file/directory is the user who
+    st->st_gid = getgid(); // The group of the file/directory is the same as the
+    st->st_atime = time(NULL);
+    st->st_mtime = time(NULL);
+
+    if (strcmp(path, "/") == 0) {
+      st->st_mode = S_IFDIR | 0755;
+      st->st_nlink = 2; // Why "two" hardlinks instead of "one"? The answer is
+                        // here: http://unix.stackexchange.com/a/101536
+    } else {
+      st->st_mode = S_IFREG | 0644;
+      st->st_nlink = 1;
+      st->st_size = 1024;
+    }
+
+    return 0;
+  }
+
+  static int readdir(const char *path, void *buffer, fuse_fill_dir_t filler,
+                        off_t offset, struct fuse_file_info *fi,
+                        enum fuse_readdir_flags flags) {
+
+    printf("--> Getting The List of Files of %s\n", path);
+
+    filler(buffer, ".", NULL, 0, FUSE_FILL_DIR_PLUS);  // Current Directory
+    filler(buffer, "..", NULL, 0, FUSE_FILL_DIR_PLUS); // Parent Directory
+
+    if (strcmp(path, "/") == 0) {
+      filler(buffer, "file54", NULL, 0, FUSE_FILL_DIR_PLUS);
+      filler(buffer, "file349", NULL, 0, FUSE_FILL_DIR_PLUS);
+    }
+
+    return 0;
+  }
+
+  static int read(const char *path, char *buffer, size_t size, off_t offset,
+                     struct fuse_file_info *fi) {
+    char file54Text[] = "Hello World From File54!";
+    char file349Text[] = "Hello World From File349!";
+    char *selectedText = NULL;
+
+    if (strcmp(path, "/file54") == 0) {
+      selectedText = file54Text;
+    } else if (strcmp(path, "/file349") == 0) {
+      selectedText = file349Text;
+    } else {
+      return -1;
+    }
+    memcpy(buffer, selectedText + offset, size);
+
+    return strlen(selectedText) - offset;
+  }
 };
 
 static void master() {
@@ -118,15 +176,11 @@ static void master() {
   // fuse_main(3, argv, &operations, NULL);
   struct fuse *fuse;
 
-  static const struct fuse_operations operations = {
-      .getattr = do_getattr,
-      .open = do_open,
-      .read = do_read,
-      .readdir = do_readdir,
-      .create = do_create,
-  };
+  MyHost fs;
 
-  fuse = fuse_new(&fuseargs, &operations, sizeof(operations), NULL);
+  auto operations = fs.Operations();
+
+  fuse = fuse_new(&fuseargs, operations, sizeof(*operations), &fs);
   if (fuse_mount(fuse, "ici") != 0) {
     fprintf(stderr, "Could not mount\n");
   }
