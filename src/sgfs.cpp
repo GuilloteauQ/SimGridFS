@@ -58,8 +58,12 @@ public:
                      enum fuse_readdir_flags flags) {
 
     sg4::Mailbox *master_mailbox = sg4::Mailbox::by_name("master");
+    sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("masterfs");
     std::string msg = std::string(path);
-    master_mailbox->put(&msg, 0);
+    master_mailbox->put(new double(0), 0);
+
+    auto *msg_recv = my_mailbox->get<std::set<std::string>>();
+    std::set<std::string> filenames = *msg_recv;
 
     printf("--> Getting The List of Files of %s\n", path);
 
@@ -67,8 +71,11 @@ public:
     filler(buffer, "..", NULL, 0, FUSE_FILL_DIR_PLUS); // Parent Directory
 
     if (strcmp(path, "/") == 0) {
-      filler(buffer, "file54", NULL, 0, FUSE_FILL_DIR_PLUS);
-      filler(buffer, "file349", NULL, 0, FUSE_FILL_DIR_PLUS);
+      for (std::string filename : filenames) {
+        XBT_INFO("Showing file %s", filename.c_str());
+        filler(buffer, filename.c_str(), NULL, 0, FUSE_FILL_DIR_PLUS);
+      }
+      // filler(buffer, "file349", NULL, 0, FUSE_FILL_DIR_PLUS);
     }
 
     return 0;
@@ -112,6 +119,10 @@ public:
 
   static int open(const char *path, struct fuse_file_info *fi) {
     std::string filename = path;
+    sg4::Mailbox *master_mailbox = sg4::Mailbox::by_name("master");
+    sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("masterfs");
+    master_mailbox->put(new double(1), 0);
+    master_mailbox->put(&filename, 0);
     XBT_INFO("Openning '%s' on /", filename.c_str());
     sg_file_t res = sg4::File::open(filename, nullptr);
     fi->fh = (uint64_t)(res);
@@ -159,13 +170,30 @@ void master(std::vector<std::string> worker_names) {
     workers.push_back(sg4::Mailbox::by_name(worker_name));
   }
 
-  const sg4::Host *my_host = sg4::this_actor::get_host();
+  std::set<std::string> filenames;
+
   sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("master");
+  sg4::Mailbox *masterfs_mailbox = sg4::Mailbox::by_name("masterfs");
   do {
 
-    auto *path_msg = my_mailbox->get<std::string>();
-    XBT_INFO("RECEIVED!");
-    XBT_INFO("RECEIVED %s", path_msg->c_str());
+    auto *msg = my_mailbox->get<double>();
+    if (*msg == 0) {
+      XBT_INFO("Must send all the filenames");
+      masterfs_mailbox->put(&filenames, 0);
+    } else if (*msg == 1) {
+      XBT_INFO("Must add a new filename to the list");
+      auto* msg_f = my_mailbox->get<std::string>();
+      std::string new_filename = *msg_f;
+      std::string trimmed_new_filename = new_filename.substr(1, new_filename.length() - 1);
+      XBT_INFO("New file alert! %s", trimmed_new_filename.c_str());
+      filenames.insert(trimmed_new_filename);
+    } else {
+      XBT_INFO("weird value !");
+    }
+
+    // auto *path_msg = my_mailbox->get<std::string>();
+    // XBT_INFO("RECEIVED!");
+    // XBT_INFO("RECEIVED %s", path_msg->c_str());
 
   } while (1); /* Stop when receiving an invalid compute_cost */
 }
