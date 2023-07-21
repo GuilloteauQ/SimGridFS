@@ -1,13 +1,12 @@
+#include <simgrid/s4u/Mailbox.hpp>
 extern "C" {
 #define FUSE_USE_VERSION 311
-// #include <fuse_lowlevel.h>
 #include <fuse.h>
 }
 
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
-// #include <stdlib.h>
 
 #include <cstring>
 #include <functional>
@@ -17,36 +16,18 @@ extern "C" {
 
 #include <simgrid/plugins/file_system.h>
 #include <simgrid/s4u.hpp>
+
+#define MASTER_NAME "master"
+
 XBT_LOG_NEW_DEFAULT_CATEGORY(s4u_test, "a sample log category");
 namespace sg4 = simgrid::s4u;
 
-class Master : public Fusepp::Fuse<Master> {
+class MasterFS : public Fusepp::Fuse<MasterFS> {
 public:
-  void show_info(std::vector<sg4::Disk *> const &disks) const {
-    XBT_INFO("Storage info on %s:", sg4::Host::current()->get_cname());
-
-    for (auto const &d : disks) {
-      // Retrieve disk's information
-      XBT_INFO("    %s (%s) Used: %llu; Free: %llu; Total: %llu.",
-               d->get_cname(), sg_disk_get_mount_point(d),
-               sg_disk_get_size_used(d), sg_disk_get_size_free(d),
-               sg_disk_get_size(d));
-    }
-  }
+  MasterFS(std::string master_name) { master_name = master_name; }
 
   static int getattr(const char *path, struct stat *st,
                      struct fuse_file_info *fi) {
-    XBT_INFO("Storage info on %s:", sg4::Host::current()->get_cname());
-    std::vector<sg4::Disk *> const &disks = sg4::Host::current()->get_disks();
-
-    // Master::show_info(disks);
-    for (auto const &d : disks) {
-      // Retrieve disk's information
-      XBT_INFO("    %s (%s) Used: %llu; Free: %llu; Total: %llu.",
-               d->get_cname(), sg_disk_get_mount_point(d),
-               sg_disk_get_size_used(d), sg_disk_get_size_free(d),
-               sg_disk_get_size(d));
-    }
 
     std::cout << "[getattr] Called" << std::endl;
     std::cout << "\tAttributes of " << path << " requested" << std::endl;
@@ -72,6 +53,10 @@ public:
                      off_t offset, struct fuse_file_info *fi,
                      enum fuse_readdir_flags flags) {
 
+    sg4::Mailbox *master_mailbox = sg4::Mailbox::by_name("master");
+    std::string msg = std::string(path);
+    master_mailbox->put(&msg, 0);
+
     printf("--> Getting The List of Files of %s\n", path);
 
     filler(buffer, ".", NULL, 0, FUSE_FILL_DIR_PLUS);  // Current Directory
@@ -85,37 +70,103 @@ public:
     return 0;
   }
 
+  static int write(const char *path, const char *buf, size_t size, off_t offset,
+                   struct fuse_file_info *fi) {
+    std::string filename = path;
+
+    int fd;
+    int res;
+    (void)fi;
+    if (fi != NULL) {
+      XBT_INFO("Using open file");
+    }
+    sg_file_t file =
+        (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
+    file->seek(offset);
+    if (fi == NULL) {
+      XBT_INFO("Create a %lu bytes file named '%s' on / (offset %lu)", size,
+               filename.c_str(), offset);
+    } else {
+      XBT_INFO("Adding a %lu bytes file named '%s' on / (offset %lu)", size,
+               filename.c_str(), offset);
+    }
+    XBT_INFO("File %s of size %llu", filename.c_str(), file->size());
+    sg_size_t write = file->write(size);
+    XBT_INFO("File %s of size %llu", filename.c_str(), file->size());
+    if (fi == NULL) {
+      file->close();
+    }
+    return write;
+  }
+
+  static int open(const char *path, struct fuse_file_info *fi) {
+    std::string filename = path;
+    XBT_INFO("Openning '%s' on /", filename.c_str());
+    sg_file_t res = sg4::File::open(filename, nullptr);
+    fi->fh = (uint64_t)(res);
+    return 0;
+  }
+
+  static off_t lseek(const char *path, off_t off, int whence,
+                     struct fuse_file_info *fi) {
+    XBT_INFO("LSEEK");
+    std::string filename = path;
+    (void)fi;
+    if (fi != NULL) {
+      XBT_INFO("Using open file");
+    }
+    sg_file_t file =
+        (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
+
+
+    file->seek(off, whence);
+    if (fi == NULL)
+      file->close();
+    return off;
+  }
+
   static int read(const char *path, char *buffer, size_t size, off_t offset,
                   struct fuse_file_info *fi) {
-    char file54Text[] = "Hello World From File54!";
-    char file349Text[] = "Hello World From File349!";
-    char *selectedText = NULL;
+    std::string filename = path;
+    (void)fi;
+    sg_file_t file =
+        (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
 
-    if (strcmp(path, "/file54") == 0) {
-      selectedText = file54Text;
-    } else if (strcmp(path, "/file349") == 0) {
-      selectedText = file349Text;
-    } else {
-      return -1;
+    const sg_size_t file_size = file->size();
+    file->seek(offset);
+    const sg_size_t read = file->read(size);
+    XBT_INFO("Read %llu bytes on %s (offset: %lu)", read, filename.c_str(),
+             offset);
+    if (fi == NULL) {
+      file->close();
     }
-    memcpy(buffer, selectedText + offset, size);
-
-    return strlen(selectedText) - offset;
+    return (int)(read - offset);
   }
 };
 
-static void master(std::vector<std::string> worker_names) {
+void master(std::vector<std::string> worker_names) {
   std::vector<sg4::Mailbox *> workers;
   for (std::string worker_name : worker_names) {
     workers.push_back(sg4::Mailbox::by_name(worker_name));
   }
 
+  const sg4::Host *my_host = sg4::this_actor::get_host();
+  sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("master");
+  do {
+
+    auto *path_msg = my_mailbox->get<std::string>();
+    XBT_INFO("RECEIVED!");
+    XBT_INFO("RECEIVED %s", path_msg->c_str());
+
+  } while (1); /* Stop when receiving an invalid compute_cost */
+}
+
+void masterfs(std::string master_name) {
   char *argv[] = {"plop"};
   struct fuse_args fuseargs = FUSE_ARGS_INIT(1, argv);
-  // fuse_main(3, argv, &operations, NULL);
   struct fuse *fuse;
 
-  Master fs;
+  MasterFS fs(master_name);
 
   auto operations = fs.Operations();
 
@@ -123,17 +174,14 @@ static void master(std::vector<std::string> worker_names) {
   if (fuse_mount(fuse, "ici") != 0) {
     fprintf(stderr, "Could not mount\n");
   }
-
   if (fuse_daemonize(1) != 0) {
     fprintf(stderr, "Could not daemonzie\n");
   }
   struct fuse_session *se = fuse_get_session(fuse);
   fuse_loop(fuse);
-
-  // fuse_unmount(fuse);
 }
 
-static void worker() {
+void worker() {
   const sg4::Host *my_host = sg4::this_actor::get_host();
   sg4::Mailbox *mailbox = sg4::Mailbox::by_name(my_host->get_name());
 
@@ -157,8 +205,8 @@ int main(int argc, char *argv[]) {
   sg4::Engine e(&argc, argv);
   sg_storage_file_system_init();
   e.load_platform(argv[1]);
-  // sg4::Actor::create("host", e.host_by_name("bob"), MyHost());
-  int nb_workers = 8;
+
+  int nb_workers = 1;
 
   std::string worker_name;
   std::vector<std::string> worker_names;
@@ -167,8 +215,10 @@ int main(int argc, char *argv[]) {
     worker_names.push_back(worker_name);
     sg4::Actor::create(worker_name, e.host_by_name("bob"), worker);
   }
+  // the dynamic part
   sg4::Actor::create("master", e.host_by_name("bob"), master, worker_names);
+  // the fuse part that sends to the dynamic part
+  sg4::Actor::create("masterfs", e.host_by_name("bob"), masterfs, "master");
   e.run();
-
-  // return fuse_main(argc, argv, &operations, NULL);
+  return 0;
 }
