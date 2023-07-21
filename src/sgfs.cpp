@@ -35,6 +35,10 @@ public:
     st->st_gid = getgid(); // The group of the file/directory is the same as the
     st->st_atime = time(NULL);
     st->st_mtime = time(NULL);
+    std::string filename = path;
+    sg_file_t file =
+        (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
+    const sg_size_t file_size = file->size();
 
     if (strcmp(path, "/") == 0) {
       st->st_mode = S_IFDIR | 0755;
@@ -43,7 +47,7 @@ public:
     } else {
       st->st_mode = S_IFREG | 0644;
       st->st_nlink = 1;
-      st->st_size = 1024;
+      st->st_size = file_size;
     }
 
     return 0;
@@ -67,6 +71,13 @@ public:
       filler(buffer, "file349", NULL, 0, FUSE_FILL_DIR_PLUS);
     }
 
+    return 0;
+  }
+
+  static int unlink(const char *path) {
+    std::string filename = path;
+    sg_file_t file = sg4::File::open(filename, nullptr);
+    file->unlink();
     return 0;
   }
 
@@ -118,7 +129,6 @@ public:
     sg_file_t file =
         (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
 
-
     file->seek(off, whence);
     if (fi == NULL)
       file->close();
@@ -132,7 +142,6 @@ public:
     sg_file_t file =
         (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
 
-    const sg_size_t file_size = file->size();
     file->seek(offset);
     const sg_size_t read = file->read(size);
     XBT_INFO("Read %llu bytes on %s (offset: %lu)", read, filename.c_str(),
@@ -140,7 +149,7 @@ public:
     if (fi == NULL) {
       file->close();
     }
-    return (int)(read - offset);
+    return (int)(read);
   }
 };
 
