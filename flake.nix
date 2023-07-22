@@ -20,6 +20,8 @@
             gnat
             pkg-config 
             fuse3
+            ior
+            openmpi
           ];
         };
 

@@ -7,6 +7,9 @@ extern "C" {
 #include <sys/types.h>
 #include <time.h>
 #include <unistd.h>
+#include <chrono>
+#include <thread>
+
 
 #include <cstring>
 #include <functional>
@@ -60,6 +63,8 @@ public:
     sg4::Mailbox *master_mailbox = sg4::Mailbox::by_name("master");
     sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("masterfs");
     std::string msg = std::string(path);
+
+
     master_mailbox->put(new double(0), 0);
 
     auto *msg_recv = my_mailbox->get<std::set<std::string>>();
@@ -75,7 +80,6 @@ public:
         XBT_INFO("Showing file %s", filename.c_str());
         filler(buffer, filename.c_str(), NULL, 0, FUSE_FILL_DIR_PLUS);
       }
-      // filler(buffer, "file349", NULL, 0, FUSE_FILL_DIR_PLUS);
     }
 
     return 0;
@@ -98,6 +102,9 @@ public:
     if (fi != NULL) {
       XBT_INFO("Using open file");
     }
+    sg4::Engine* engine = sg4::Engine::get_instance();
+    double time_before = engine->get_clock();
+    XBT_INFO("it's currently %f", engine->get_clock());
     sg_file_t file =
         (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
     file->seek(offset);
@@ -114,6 +121,10 @@ public:
     if (fi == NULL) {
       file->close();
     }
+    double time_after = engine->get_clock();
+    XBT_INFO("write took %f (%f -> %f)", time_after - time_before, time_before, time_after);
+    long int sleep_duration_us = (long int) (1000000 * (time_after - time_before)); 
+    std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration_us));
     return write;
   }
 
@@ -150,6 +161,8 @@ public:
                   struct fuse_file_info *fi) {
     std::string filename = path;
     (void)fi;
+    sg4::Engine* engine = sg4::Engine::get_instance();
+    double time_before = engine->get_clock();
     sg_file_t file =
         (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
 
@@ -160,6 +173,11 @@ public:
     if (fi == NULL) {
       file->close();
     }
+    double time_after = engine->get_clock();
+    XBT_INFO("read took %f (%f -> %f)", time_after - time_before, time_before, time_after);
+    long int sleep_duration_us = (long int) (1000000 * (time_after - time_before)); 
+    std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration_us));
+
     return (int)(read);
   }
 };

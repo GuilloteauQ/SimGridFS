@@ -6,8 +6,10 @@
       <prop id="ram" value="100B" />
       <disk id="Disk1" read_bw="100MBps" write_bw="40MBps">
         <prop id="size" value="500GiB"/>
-        <prop id="mount" value="/scratch"/>
+        <prop id="mount" value="/"/>
         <prop id="content" value="storage/content/storage_content.txt"/>
+        <prop id="content" value="file54"/>
+        <prop id="content" value="file349"/>
       </disk>
       <disk id="Disk2" read_bw="200MBps" write_bw="80MBps"/>
     </host>

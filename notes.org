@@ -328,3 +328,152 @@ to investigate:
 
 
 and now dodo
+
+** <2023-07-21 Fri>
+
+Ok!
+
+let's forget for now about those "read too many bytes"
+
+what i want to do is to have coherency between the terminal and simgrid
+
+bah it was just a stupid mistake in the end...
+
+i was reading the full file and not what the function wanted (oopsi)
+
+IOR still fails because of unlink
+
+let's implement it quickly :)
+
+ok, implemented !
+
+now we need to make the stat call coherent with the actuall size of the files 
+
+
+Alright!!!
+
+IOR IS COMPLETING !! YAY
+
+#+BEGIN_EXAMPLE
+IOR-3.3.0: MPI Coordinated Test of Parallel I/O
+Began               : Fri Jul 21 09:54:44 2023
+Command line        : ior
+Machine             : Linux kagel
+TestID              : 0
+StartTime           : Fri Jul 21 09:54:44 2023
+Path                : /home/quentin/ghq/github.com/GuilloteauQ/fuse-sg/src/ici
+FS                  : 0.0 GiB   Used FS: -nan%   Inodes: 0.0 Mi   Used Inodes: -nan%
+
+Options:
+api                 : POSIX
+apiVersion          :
+test filename       : testFile
+access              : single-shared-file
+type                : independent
+segments            : 1
+ordering in a file  : sequential
+ordering inter file : no tasks offsets
+nodes               : 1
+tasks               : 1
+clients per node    : 1
+repetitions         : 1
+xfersize            : 262144 bytes
+blocksize           : 1 MiB
+aggregate filesize  : 1 MiB
+
+Results:
+
+access    bw(MiB/s)  IOPS       Latency(s)  block(KiB) xfer(KiB)  open(s)    wr/rd(s)   close(s)   total(s)   iter
+------    ---------  ----       ----------  ---------- ---------  --------   --------   --------   --------   ----
+write     773.77     3557.39    0.000281    1024.00    256.00     0.000164   0.001124   0.000003   0.001292   0
+read      772.02     4141       0.000241    1024.00    256.00     0.000326   0.000966   0.000003   0.001295   0
+remove    -          -          -           -          -          -          -          -          0.000126   0
+Max Write: 773.77 MiB/sec (811.36 MB/sec)
+Max Read:  772.02 MiB/sec (809.53 MB/sec)
+
+Summary of all tests:
+Operation   Max(MiB)   Min(MiB)  Mean(MiB)     StdDev   Max(OPs)   Min(OPs)  Mean(OPs)     StdDev    Mean(s) Stonewall(s) Stonewall(MiB) Test# #Tasks tPN reps fPP reord reordoff reordrand seed segcnt   blksiz    xsize aggs(MiB)   API RefNum
+write         773.77     773.77     773.77       0.00    3095.07    3095.07    3095.07       0.00    0.00129         NA            NA     0      1   1    1   0     0        1         0    0      1  1048576   262144       1.0 POSIX      0
+read          772.02     772.02     772.02       0.00    3088.10    3088.10    3088.10       0.00    0.00130         NA            NA     0      1   1    1   0     0        1         0    0      1  1048576   262144       1.0 POSIX      0
+Finished            : Fri Jul 21 09:54:44 2023
+#+END_EXAMPLE
+
+
+ok i still want this coherency between simgrid and the terminal
+
+it might be a bit annoying as the fuse class cannot have dynamic parts....
+
+so i might just ask the master actor to store that for me
+
+
+Alright !! working nice now!!
+
+
+so, what is next ?
+
+what would be awesome would be to run the smpi version of ior on the filesytem
+
+also we should probably do a ior script instead of not passing args
+
+
+Ok,
+
+so i am trying to use the replay fonctionanlity of SMPI to integrate with the fuse+sg
+
+https://simgrid.org/doc/latest/app_smpi.html#offline-smpi-trace-replay
+
+but i cannot fucking make it work...
+
+the replay.cpp does not even compile ...
+
+#+BEGIN_EXAMPLE
+[quentin@kagel:~/.../GuilloteauQ/ior-simgrid$]$ smpicxx replay.cpp -O3 -o smpi_replay
+In file included from replay.cpp:7:
+/nix/store/kr17fgvw275gjal7fqvhpx8j9nlqggyc-simgrid-3.32/include/simgrid/s4u/Actor.hpp:274:38: error: ‘result_of_t’ in namespace ‘std’ does not name a template type; did you mean ‘result_of’?
+  274 |             typename = typename std::result_of_t<F(Args...)>
+      |                                      ^~~~~~~~~~~
+      |                                      result_of
+/nix/store/kr17fgvw275gjal7fqvhpx8j9nlqggyc-simgrid-3.32/include/simgrid/s4u/Actor.hpp:274:49: error: expected ‘>’ before ‘<’ token
+  274 |             typename = typename std::result_of_t<F(Args...)>
+      |                                                 ^
+/nix/store/kr17fgvw275gjal7fqvhpx8j9nlqggyc-simgrid-3.32/include/simgrid/s4u/Actor.hpp:299:38: error: ‘result_of_t’ in namespace ‘std’ does not name a template type; did you mean ‘result_of’?
+  299 |             typename = typename std::result_of_t<F(Args...)>
+      |                                      ^~~~~~~~~~~
+      |                                      result_of
+/nix/store/kr17fgvw275gjal7fqvhpx8j9nlqggyc-simgrid-3.32/include/simgrid/s4u/Actor.hpp:299:49: error: expected ‘>’ before ‘<’ token
+  299 |             typename = typename std::result_of_t<F(Args...)>
+      |                                                 ^
+#+END_EXAMPLE
+
+
+I can also add ` -trace-ti --cfg=tracing/filename:HPL_trace --cfg=smpi/display-timing:yes` to smpirun to generate ti_traces, but they do not count the posix write/read calls, just MPI calls 
+
+i think i need to send a message on mattermost....
+
+
+Message:
+
+Hello ! Je suis un (gros) noob SimGrid et j'ai surement mal compris quelque chose.
+Mon objectif (naif) est de voir si je peux simuler le comportement d'un PFS avec S4U + le plugin FS et lancer un benchmark IO ([IOR](https://ior.readthedocs.io/en/3.3/index.html) en l'occurence) en SMPI sur la même plateforme (une partie de la plateforme pour le pfs, une autre pour le benchmark).
+Le problème est que le benchmark utilise une interface POSIX pour les IOs, qu'il n'est pas possible de capturer avec SimGrid (sauf si j'ai raté qqchose).
+Comme un bourrin j'ai rajouté du fuse dans tout ca pour avoir un fs en S4U avec une interface posix.
+Donc je peux lancer mon benchmark avec SMPI qui va faire les io en posix sur mon fs avec s4u, mais j'ai deux simulations independantes et donc le temps et les perfs retournées par le benchmark n'ont pas de sens.
+
+Ma question est donc de savoir s'il est possible de tout lancer sur la même plateforme dans ce cas ?
+
+** <2023-07-22 Sat>
+
+So i added some sleep in the fuse commands to show the time taken by the disks and al.
+
+and now it works ! I have the same performance by running *unmodified* ior on my sgfs, and with ior-smpi
+
+
+The next steps (but not today) would be to clean a bit every thing
+
+*** [0/4] TODO
+- [ ] CLI args, maybe ./sgfs [simgrid args] -- [fuse args]
+- [ ] add time for the other simgrid file operation (open, seek)
+- [ ] try to make a clean "sequential" version, then release
+- [ ] start adding the parallelization of the ops
+  - [ ] first just deleging to a worker
+  - [ ] then sending to several workers
