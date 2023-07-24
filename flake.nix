@@ -11,6 +11,30 @@
       pkgs = import nixpkgs { inherit system; };
     in
     {
+      packages.${system} = rec {
+        default = sgfs;
+        sgfs = pkgs.stdenv.mkDerivation {
+          name = "simgridFS";
+          version = "0.0";
+          src = ./src;
+          buildInputs = with pkgs; [
+            gnumake
+            gnat
+            pkg-config 
+            fuse3
+          ];
+          propagatedBuildInputs = [
+            pkgs.simgrid
+          ];
+          buildPhase = ''
+            make
+          '';
+          installPhase = ''
+            mkdir -p $out/bin
+            cp sgfs $out/bin
+          '';
+        };
+      };
 
       devShells.${system} = {
         default = pkgs.mkShell {
