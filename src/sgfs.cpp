@@ -1,15 +1,15 @@
+#include <cstdio>
 #include <simgrid/s4u/Mailbox.hpp>
 extern "C" {
 #define FUSE_USE_VERSION 311
 #include <fuse.h>
 }
 
+#include <chrono>
 #include <sys/types.h>
+#include <thread>
 #include <time.h>
 #include <unistd.h>
-#include <chrono>
-#include <thread>
-
 
 #include <cstring>
 #include <functional>
@@ -64,7 +64,6 @@ public:
     sg4::Mailbox *my_mailbox = sg4::Mailbox::by_name("masterfs");
     std::string msg = std::string(path);
 
-
     master_mailbox->put(new double(0), 0);
 
     auto *msg_recv = my_mailbox->get<std::set<std::string>>();
@@ -102,7 +101,7 @@ public:
     if (fi != NULL) {
       XBT_INFO("Using open file");
     }
-    sg4::Engine* engine = sg4::Engine::get_instance();
+    sg4::Engine *engine = sg4::Engine::get_instance();
     double time_before = engine->get_clock();
     XBT_INFO("it's currently %f", engine->get_clock());
     sg_file_t file =
@@ -122,8 +121,10 @@ public:
       file->close();
     }
     double time_after = engine->get_clock();
-    XBT_INFO("write took %f (%f -> %f)", time_after - time_before, time_before, time_after);
-    long int sleep_duration_us = (long int) (1000000 * (time_after - time_before)); 
+    XBT_INFO("write took %f (%f -> %f)", time_after - time_before, time_before,
+             time_after);
+    long int sleep_duration_us =
+        (long int)(1000000 * (time_after - time_before));
     std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration_us));
     return write;
   }
@@ -161,7 +162,7 @@ public:
                   struct fuse_file_info *fi) {
     std::string filename = path;
     (void)fi;
-    sg4::Engine* engine = sg4::Engine::get_instance();
+    sg4::Engine *engine = sg4::Engine::get_instance();
     double time_before = engine->get_clock();
     sg_file_t file =
         (fi == NULL) ? sg4::File::open(filename, nullptr) : (sg_file_t)(fi->fh);
@@ -174,8 +175,10 @@ public:
       file->close();
     }
     double time_after = engine->get_clock();
-    XBT_INFO("read took %f (%f -> %f)", time_after - time_before, time_before, time_after);
-    long int sleep_duration_us = (long int) (1000000 * (time_after - time_before)); 
+    XBT_INFO("read took %f (%f -> %f)", time_after - time_before, time_before,
+             time_after);
+    long int sleep_duration_us =
+        (long int)(1000000 * (time_after - time_before));
     std::this_thread::sleep_for(std::chrono::microseconds(sleep_duration_us));
 
     return (int)(read);
@@ -200,37 +203,32 @@ void master(std::vector<std::string> worker_names) {
       masterfs_mailbox->put(&filenames, 0);
     } else if (*msg == 1) {
       XBT_INFO("Must add a new filename to the list");
-      auto* msg_f = my_mailbox->get<std::string>();
+      auto *msg_f = my_mailbox->get<std::string>();
       std::string new_filename = *msg_f;
-      std::string trimmed_new_filename = new_filename.substr(1, new_filename.length() - 1);
+      std::string trimmed_new_filename =
+          new_filename.substr(1, new_filename.length() - 1);
       XBT_INFO("New file alert! %s", trimmed_new_filename.c_str());
       filenames.insert(trimmed_new_filename);
     } else {
       XBT_INFO("weird value !");
     }
-
-    // auto *path_msg = my_mailbox->get<std::string>();
-    // XBT_INFO("RECEIVED!");
-    // XBT_INFO("RECEIVED %s", path_msg->c_str());
-
-  } while (1); /* Stop when receiving an invalid compute_cost */
+  } while (1);
 }
 
-void masterfs(std::string master_name) {
-  char *argv[] = {"plop"};
+void masterfs(std::string master_name, int argc, char *argv[]) {
   struct fuse_args fuseargs = FUSE_ARGS_INIT(1, argv);
   struct fuse *fuse;
-
   MasterFS fs(master_name);
-
   auto operations = fs.Operations();
-
   fuse = fuse_new(&fuseargs, operations, sizeof(*operations), &fs);
-  if (fuse_mount(fuse, "ici") != 0) {
+  char* mount_point = argv[argc - 1];
+  if (fuse_mount(fuse,  mount_point) != 0) {
     fprintf(stderr, "Could not mount\n");
+    exit(1);
   }
   if (fuse_daemonize(1) != 0) {
     fprintf(stderr, "Could not daemonzie\n");
+    exit(1);
   }
   struct fuse_session *se = fuse_get_session(fuse);
   fuse_loop(fuse);
@@ -253,11 +251,27 @@ void worker() {
   XBT_INFO("Exiting now.");
 }
 
+int find_argv_sep(int argc, char *argv[]) {
+  int i = 0;
+  for (i = 0; i < argc; i++) {
+    if (strcmp(argv[i], "--") == 0) {
+      return i;
+    }
+  }
+  return i;
+}
+
 int main(int argc, char *argv[]) {
   umask(0);
 
-  // TODO: have a seperator '--' to pass args to simgrid and to fuse
-  sg4::Engine e(&argc, argv);
+  int sep_position = find_argv_sep(argc, argv);
+
+  int nb_args_simgrid = sep_position;
+  int nb_args_fuse = argc - sep_position;
+  argv[sep_position] = argv[0];
+  assert(nb_args_simgrid >= 2);
+
+  sg4::Engine e(&nb_args_simgrid, argv);
   sg_storage_file_system_init();
   e.load_platform(argv[1]);
 
@@ -273,7 +287,8 @@ int main(int argc, char *argv[]) {
   // the dynamic part
   sg4::Actor::create("master", e.host_by_name("bob"), master, worker_names);
   // the fuse part that sends to the dynamic part
-  sg4::Actor::create("masterfs", e.host_by_name("bob"), masterfs, "master");
+  sg4::Actor::create("masterfs", e.host_by_name("bob"), masterfs, "master",
+                     nb_args_fuse, argv + nb_args_fuse);
   e.run();
   return 0;
 }

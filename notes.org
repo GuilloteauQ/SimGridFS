@@ -470,10 +470,14 @@ and now it works ! I have the same performance by running *unmodified* ior on my
 
 The next steps (but not today) would be to clean a bit every thing
 
-*** [0/4] TODO
-- [ ] CLI args, maybe ./sgfs [simgrid args] -- [fuse args]
+*** [1/4] TODO
+- [X] CLI args, maybe ./sgfs [simgrid args] -- [fuse args]
 - [ ] add time for the other simgrid file operation (open, seek)
 - [ ] try to make a clean "sequential" version, then release
 - [ ] start adding the parallelization of the ops
   - [ ] first just deleging to a worker
   - [ ] then sending to several workers
+
+<2023-07-24 Mon>
+
+did the separation of args with `--`
